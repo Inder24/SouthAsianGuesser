@@ -1,9 +1,50 @@
 import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-import { GAME_ROUNDS } from "./game-rounds.js?v=game-v7";
+import { GAME_ROUNDS } from "./game-rounds.js?v=game-v8";
 
 const GRABMAPS_SDK_BASE_URL = "https://maps.grab.com";
 const GRABMAPS_API_KEY = window.GRABMAPS_API_KEY || "";
 const COUNTRY_CHOICES = ["Singapore", "Thailand", "Malaysia", "Vietnam", "Indonesia", "Philippines", "Cambodia", "Laos", "Myanmar", "Brunei"];
+const PRE_GUESS_TAG_REWRITES = new Map([
+  ["thai script", "local script"],
+  ["vietnamese signage", "local signage"],
+  ["malaysia flag", "flag visible"],
+  ["indonesian road name", "road-name clue"],
+  ["indonesian signage", "local signage"],
+  ["old quarter", "historic quarter"]
+]);
+const PRE_GUESS_BLOCKED_TERMS = [
+  "singapore",
+  "thailand",
+  "thai",
+  "malaysia",
+  "malaysian",
+  "vietnam",
+  "vietnamese",
+  "indonesia",
+  "indonesian",
+  "philippines",
+  "filipino",
+  "cambodia",
+  "cambodian",
+  "khmer",
+  "laos",
+  "laotian",
+  "myanmar",
+  "burmese",
+  "brunei",
+  "orchard",
+  "bangkok",
+  "phuket",
+  "kuala lumpur",
+  "jalan alor",
+  "ho chi minh",
+  "siem reap",
+  "hanoi",
+  "malacca",
+  "makati",
+  "jakarta",
+  "yogyakarta"
+];
 const MODES = {
   classic: {
     label: "Classic",
@@ -73,7 +114,8 @@ const state = {
   viewY: 0.5,
   zoom: 1.18,
   drag: null,
-  roundDeck: []
+  roundDeck: [],
+  lastOpeningRoundId: ""
 };
 
 updateHud();
@@ -86,7 +128,7 @@ async function init() {
     setMapStatus("GrabMaps SDK loading");
     state.client = createGrabClient();
     await initMap();
-    state.roundDeck = shuffle(GAME_ROUNDS);
+    state.roundDeck = buildRoundDeck();
     renderCountryChoices();
     updatePlayAvailability();
     setStatus("Choose a mode, then press Play");
@@ -226,14 +268,14 @@ async function startGame() {
   state.totalScore = 0;
   state.streak = 0;
   state.countryGuess = "";
-  state.roundDeck = shuffle(GAME_ROUNDS);
+  state.roundDeck = buildRoundDeck(state.lastOpeningRoundId);
   updateHud();
   await startRound();
 }
 
 async function startRound() {
   if (!state.roundDeck.length) {
-    state.roundDeck = shuffle(GAME_ROUNDS);
+    state.roundDeck = buildRoundDeck(state.lastOpeningRoundId);
   }
 
   clearTimer();
@@ -258,6 +300,9 @@ async function startRound() {
     state.round += 1;
     state.target = roundData.location;
     state.photo = roundData.photo;
+    if (state.round === 1) {
+      state.lastOpeningRoundId = roundData.location.id;
+    }
     els.countryText.textContent = "Mystery location";
     renderRoundBadges(roundData.location);
     state.map.flyTo({ center: [105, 8], zoom: 4, duration: 600 });
@@ -525,8 +570,8 @@ function updateCountryButtons(revealed = false) {
 }
 
 function renderRoundBadges(location) {
-  const tags = [location.difficulty, ...location.clueTypes.slice(0, 3)].filter(Boolean);
-  els.roundBadges.innerHTML = tags.map((tag) => `<span>${tag}</span>`).join("");
+  const tags = getPreGuessTags(location);
+  els.roundBadges.innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
   els.roundBadges.hidden = tags.length === 0;
 }
 
@@ -717,8 +762,49 @@ function waitForMap(map) {
   });
 }
 
+function buildRoundDeck(avoidFirstId = "") {
+  const deck = shuffle(GAME_ROUNDS);
+  if (avoidFirstId && deck.length > 1 && deck[0]?.id === avoidFirstId) {
+    const swapIndex = deck.findIndex((round) => round.id !== avoidFirstId);
+    if (swapIndex > 0) {
+      [deck[0], deck[swapIndex]] = [deck[swapIndex], deck[0]];
+    }
+  }
+  return deck;
+}
+
 function shuffle(items) {
-  return [...items].sort(() => Math.random() - 0.5);
+  const deck = [...items];
+  for (let index = deck.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+  }
+  return deck;
+}
+
+function getPreGuessTags(location) {
+  const tags = [location.difficulty, ...location.clueTypes]
+    .map(neutralizePreGuessTag)
+    .filter(Boolean);
+  return [...new Set(tags)].slice(0, 4);
+}
+
+function neutralizePreGuessTag(tag) {
+  const normalized = String(tag || "").trim().toLowerCase();
+  if (!normalized) return "";
+  const rewritten = PRE_GUESS_TAG_REWRITES.get(normalized) || tag;
+  const safeText = String(rewritten).trim();
+  const lowered = safeText.toLowerCase();
+  return PRE_GUESS_BLOCKED_TERMS.some((term) => lowered.includes(term)) ? "" : safeText;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function clearTimer() {
