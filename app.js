@@ -1,5 +1,5 @@
 import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-import { GAME_ROUNDS, REAL_VIEW_LOCATIONS } from "./game-rounds.js?v=game-v15";
+import { GAME_ROUNDS, REAL_VIEW_LOCATIONS } from "./game-rounds.js?v=game-v16";
 
 const GRABMAPS_SDK_BASE_URL = "https://maps.grab.com";
 const GRABMAPS_API_KEY = window.GRABMAPS_API_KEY || "";
@@ -7,6 +7,8 @@ const KARTAVIEW_API_BASE_URL = "https://kartaview.org";
 const KARTAVIEW_DETAILS_BASE_URL = "https://api.openstreetcam.org";
 const KARTAVIEW_SEARCH_RADIUS_METERS = 1200;
 const KARTAVIEW_FETCH_TIMEOUT_MS = 6500;
+const TIMEOUT_PENALTY = -750;
+const TIMEOUT_AUTO_NEXT_MS = 2800;
 const COUNTRY_CHOICES = ["Singapore", "Thailand", "Malaysia", "Vietnam", "Indonesia", "Philippines", "Cambodia", "Laos", "Myanmar", "Brunei"];
 const PRE_GUESS_TAG_REWRITES = new Map([
   ["thai script", "local script"],
@@ -118,6 +120,7 @@ const state = {
   bestStreak: 0,
   phase: "idle",
   timerId: null,
+  timeoutAutoNextId: null,
   secondsLeft: MODES.classic.seconds,
   target: null,
   photo: null,
@@ -281,6 +284,7 @@ async function launchGame() {
 }
 
 function showTitleScreen() {
+  cancelTimeoutAutoNext();
   clearTimer();
   clearMapOverlays();
   clearViewer();
@@ -364,6 +368,7 @@ function setSourceMode(sourceMode) {
 }
 
 async function startGame() {
+  cancelTimeoutAutoNext();
   state.round = 0;
   state.totalScore = 0;
   state.streak = 0;
@@ -374,6 +379,7 @@ async function startGame() {
 }
 
 async function startRound() {
+  cancelTimeoutAutoNext();
   if (!state.roundDeck.length) {
     state.roundDeck = buildRoundDeck(state.lastOpeningRoundId);
   }
@@ -672,7 +678,7 @@ function startTimer() {
   state.secondsLeft = modeConfig().seconds;
   updateHud();
   state.timerId = window.setInterval(() => {
-    state.secondsLeft -= 1;
+    state.secondsLeft = Math.max(0, state.secondsLeft - 1);
     updateHud();
     if (state.secondsLeft <= 0) finishRound(true);
   }, 1000);
@@ -680,7 +686,7 @@ function startTimer() {
 
 function finishRound(timedOut) {
   if (state.phase !== "playing") return;
-  clearTimer();
+  clearTimer(false);
   state.phase = "result";
   els.submitButton.disabled = true;
   els.nextButton.disabled = state.round >= modeConfig().totalRounds;
@@ -694,7 +700,19 @@ function finishRound(timedOut) {
   let subtitle = "";
   let kicker = "Round result";
 
-  if (state.mode === "classic") {
+  if (timedOut) {
+    score = TIMEOUT_PENALTY;
+    title = "Time up";
+    subtitle = `Answer: ${state.target.name}, ${state.target.country}`;
+    kicker = "Time is up";
+    state.streak = 0;
+    if (state.guess) {
+      setLine(state.guess, answer);
+      fitResultBounds(state.guess, answer);
+    } else {
+      state.map.flyTo({ center: [answer.lng, answer.lat], zoom: 12, duration: 700 });
+    }
+  } else if (state.mode === "classic") {
     if (state.guess) {
       setLine(state.guess, answer);
       const distance = distanceMeters(state.guess, answer);
@@ -726,7 +744,7 @@ function finishRound(timedOut) {
   els.resultKicker.textContent = timedOut ? "Time is up" : kicker;
   els.resultTitle.textContent = title;
   els.resultSubtitle.textContent = subtitle;
-  els.roundScoreText.textContent = `+${score.toLocaleString()}`;
+  els.roundScoreText.textContent = formatScoreDelta(score);
   els.placeText.textContent = `${state.target.name}${state.target.city ? `, ${state.target.city}` : ""}`;
   els.clueText.textContent = buildClueText(state.target);
   els.sourceText.textContent = buildSourceText(state.photo);
@@ -735,12 +753,15 @@ function finishRound(timedOut) {
   els.countryText.textContent = `${state.target.name}, ${state.target.country}`;
   els.hintText.textContent = state.round >= modeConfig().totalRounds
     ? "Run complete. Press Play for a new run."
-    : "Review the answer, then continue.";
+    : timedOut
+      ? "Time up. Next round starts automatically."
+      : "Review the answer, then continue.";
   setStatus(timedOut ? "Time is up" : "Round scored");
   updateHud();
   updateCountryButtons(true);
   updateSourceButtons();
   loadGrabContext(answer);
+  scheduleTimeoutAutoNext(timedOut);
 }
 
 async function loadGrabContext(point) {
@@ -972,6 +993,11 @@ function formatDistance(meters) {
   return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
 }
 
+function formatScoreDelta(score) {
+  if (score < 0) return `-${Math.abs(score).toLocaleString()}`;
+  return `+${score.toLocaleString()}`;
+}
+
 function updateHud() {
   const total = modeConfig().totalRounds;
   els.roundText.textContent = `${Math.min(state.round, total)}/${total}`;
@@ -1074,10 +1100,29 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function clearTimer() {
+function scheduleTimeoutAutoNext(timedOut) {
+  cancelTimeoutAutoNext();
+  if (!timedOut || state.round >= modeConfig().totalRounds) return;
+  state.timeoutAutoNextId = window.setTimeout(() => {
+    state.timeoutAutoNextId = null;
+    if (state.phase === "result" && state.round < modeConfig().totalRounds) {
+      startRound();
+    }
+  }, TIMEOUT_AUTO_NEXT_MS);
+}
+
+function cancelTimeoutAutoNext() {
+  if (!state.timeoutAutoNextId) return;
+  window.clearTimeout(state.timeoutAutoNextId);
+  state.timeoutAutoNextId = null;
+}
+
+function clearTimer(resetSeconds = true) {
   window.clearInterval(state.timerId);
   state.timerId = null;
-  state.secondsLeft = modeConfig().seconds;
+  if (resetSeconds) {
+    state.secondsLeft = modeConfig().seconds;
+  }
   updateHud();
 }
 
