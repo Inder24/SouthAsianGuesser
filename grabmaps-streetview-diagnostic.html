@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GrabMaps Street View Diagnostic</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css">
+    <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+    <script src="./config.local.js"></script>
+    <style>
+      :root {
+        --bg: #f3f7f5;
+        --panel: #ffffff;
+        --ink: #10211b;
+        --muted: #64746d;
+        --line: #d8e3de;
+        --green: #00b852;
+        --red: #c43c2f;
+        --amber: #9b6b00;
+        --blue: #1a73e8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 14px;
+        padding: 18px;
+      }
+
+      header,
+      section,
+      aside {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 14px 34px rgba(16, 33, 27, 0.10);
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 28px;
+        line-height: 1.05;
+      }
+
+      h2 {
+        font-size: 16px;
+      }
+
+      .eyebrow {
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        min-height: 38px;
+        border: 0;
+        border-radius: 7px;
+        padding: 0 14px;
+        background: var(--green);
+        color: #ffffff;
+        font: inherit;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: var(--ink);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(380px, 0.58fr);
+        gap: 14px;
+        min-height: 0;
+      }
+
+      .left {
+        display: grid;
+        grid-template-rows: 390px auto 1fr;
+        gap: 14px;
+        min-height: 0;
+      }
+
+      #map {
+        min-height: 390px;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #f8fbf9;
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 22px;
+      }
+
+      .status-ok {
+        color: var(--green);
+      }
+
+      .status-bad {
+        color: var(--red);
+      }
+
+      .status-warn {
+        color: var(--amber);
+      }
+
+      .case-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .case {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .case-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .case small {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .case pre,
+      .raw pre {
+        margin: 10px 0 0;
+        max-height: 170px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        border-radius: 8px;
+        background: #10211b;
+        color: #d9fff0;
+        padding: 10px;
+        font-size: 12px;
+      }
+
+      .viewer {
+        min-height: 320px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 8px;
+        background: #11241f;
+        color: #d9fff0;
+      }
+
+      .viewer img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .raw {
+        display: grid;
+        gap: 14px;
+        min-height: 0;
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 1000px) {
+        .grid,
+        .summary {
+          grid-template-columns: 1fr;
+        }
+
+        header {
+          align-items: stretch;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">GrabMaps SDK street view diagnostic</p>
+          <h1>Can GrabMaps open street view?</h1>
+        </div>
+        <div class="actions">
+          <button id="runButton" type="button">Run Diagnostic</button>
+          <button id="openButton" class="secondary" type="button" disabled>Try SDK Viewer</button>
+        </div>
+      </header>
+
+      <div class="grid">
+        <div class="left">
+          <section id="map" aria-label="GrabMaps map"></section>
+
+          <section class="panel">
+            <div class="summary">
+              <div class="metric">
+                <span>SDK Client</span>
+                <strong id="sdkMetric">Pending</strong>
+              </div>
+              <div class="metric">
+                <span>Map Style</span>
+                <strong id="mapMetric">Pending</strong>
+              </div>
+              <div class="metric">
+                <span>Street View API</span>
+                <strong id="streetMetric">Pending</strong>
+              </div>
+              <div class="metric">
+                <span>Photos Found</span>
+                <strong id="photoMetric">0</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Coordinate Tests</h2>
+            <p class="note">
+              Each row calls <code>client.streetView.findNearbyPhotos(lat, lng, { limit, radius, projection: "SPHERE" })</code>.
+              When a photo is found, this page will render its image and enable the SDK fullscreen viewer.
+            </p>
+            <div id="caseList" class="case-list"></div>
+          </section>
+        </div>
+
+        <aside class="raw">
+          <section class="panel">
+            <h2>Photo Preview</h2>
+            <div id="viewer" class="viewer">No SDK street-view image returned yet.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Developer Notes</h2>
+            <p class="note" id="notes">Run the diagnostic to capture current SDK behavior.</p>
+          </section>
+
+          <section class="panel">
+            <h2>Raw Result</h2>
+            <pre id="rawOutput">Waiting...</pre>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <script type="module">
+      import * as GrabMaps from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
+
+      const API_KEY = window.GRABMAPS_API_KEY || "";
+      const BASE_URL = "https://maps.grab.com";
+      const TEST_CASES = [
+        { name: "Orchard Road, Singapore", lat: 1.3048, lng: 103.8318 },
+        { name: "Jalan Alor, Kuala Lumpur", lat: 3.145644, lng: 101.708619 },
+        { name: "Bangla Road, Phuket", lat: 7.893422, lng: 98.297367 },
+        { name: "Khao San Road, Bangkok", lat: 13.759738, lng: 100.495676 },
+        { name: "Bui Vien Street, Ho Chi Minh City", lat: 10.766556, lng: 106.692111 },
+        { name: "Ta Hien Street, Hanoi", lat: 21.034711, lng: 105.852142 },
+        { name: "Makati Avenue, Manila", lat: 14.552662, lng: 121.023137 },
+        { name: "Jalan Sudirman, Jakarta", lat: -6.210986, lng: 106.819795 }
+      ];
+
+      const originalConsole = {
+        log: console.log.bind(console),
+        warn: console.warn.bind(console),
+        error: console.error.bind(console)
+      };
+      const capturedLogs = [];
+      for (const level of ["log", "warn", "error"]) {
+        console[level] = (...args) => {
+          const redacted = args.map((arg) => redact(typeof arg === "string" ? arg : JSON.stringify(arg, null, 2))).join(" ");
+          capturedLogs.push({ level, message: redacted, at: new Date().toISOString() });
+          originalConsole[level](...args);
+        };
+      }
+
+      const els = {
+        runButton: document.querySelector("#runButton"),
+        openButton: document.querySelector("#openButton"),
+        sdkMetric: document.querySelector("#sdkMetric"),
+        mapMetric: document.querySelector("#mapMetric"),
+        streetMetric: document.querySelector("#streetMetric"),
+        photoMetric: document.querySelector("#photoMetric"),
+        caseList: document.querySelector("#caseList"),
+        viewer: document.querySelector("#viewer"),
+        notes: document.querySelector("#notes"),
+        rawOutput: document.querySelector("#rawOutput")
+      };
+
+      let client = null;
+      let map = null;
+      let streetViewRuntime = null;
+      let firstPhoto = null;
+      let resultSnapshot = null;
+
+      els.runButton.addEventListener("click", runDiagnostic);
+      els.openButton.addEventListener("click", () => {
+        if (firstPhoto && streetViewRuntime?.openFullscreenViewer) {
+          streetViewRuntime.openFullscreenViewer(Promise.resolve(firstPhoto)).catch((error) => {
+            addNote(`Fullscreen viewer failed: ${error.message}`);
+          });
+          return;
+        }
+        if (streetViewRuntime?.activateAtLocation) {
+          const fallback = TEST_CASES[0];
+          streetViewRuntime.activateAtLocation(fallback.lat, fallback.lng).catch((error) => {
+            addNote(`activateAtLocation failed: ${error.message}`);
+          });
+        }
+      });
+
+      renderCases(TEST_CASES.map((item) => ({ ...item, state: "pending" })));
+      runDiagnostic();
+
+      async function runDiagnostic() {
+        els.runButton.disabled = true;
+        els.openButton.disabled = true;
+        firstPhoto = null;
+        capturedLogs.length = 0;
+        setMetric(els.sdkMetric, "Testing", "status-warn");
+        setMetric(els.mapMetric, "Testing", "status-warn");
+        setMetric(els.streetMetric, "Testing", "status-warn");
+        els.photoMetric.textContent = "0";
+        els.viewer.textContent = "Testing GrabMaps street-view responses...";
+        els.notes.textContent = "Running SDK, map, streetView service, and viewer checks.";
+
+        const results = {
+          generatedAt: new Date().toISOString(),
+          sdkModule: Object.keys(GrabMaps).sort(),
+          baseUrl: BASE_URL,
+          streetViewInternalPathFromSdkSource: "/openstreetcam-api/2.0/photo/",
+          client: null,
+          map: null,
+          streetViewService: null,
+          streetViewBuilder: null,
+          cases: [],
+          capturedLogs
+        };
+
+        try {
+          client = new GrabMaps.GrabMapsBuilder()
+            .setBaseUrl(BASE_URL)
+            .setApiKey(API_KEY)
+            .setTimeout(15000)
+            .build();
+          results.client = {
+            ok: true,
+            hasApi: !!client.api,
+            hasSearch: !!client.search,
+            hasRouting: !!client.routing,
+            hasStreetView: !!client.streetView,
+            streetViewMethods: client.streetView ? methodNames(client.streetView) : []
+          };
+          setMetric(els.sdkMetric, "OK", "status-ok");
+        } catch (error) {
+          results.client = { ok: false, error: error.message };
+          setMetric(els.sdkMetric, "Failed", "status-bad");
+          finish(results);
+          return;
+        }
+
+        results.streetViewService = {
+          exists: !!client.streetView,
+          hasFindNearbyPhotos: typeof client.streetView?.findNearbyPhotos === "function",
+          hasFindNearestPhoto: typeof client.streetView?.findNearestPhoto === "function",
+          hasGetPhoto: typeof client.streetView?.getPhoto === "function"
+        };
+
+        try {
+          await buildMap();
+          results.map = { ok: true, using: "MapBuilder", styleUrl: "https://maps.grab.com/api/style.json" };
+          setMetric(els.mapMetric, "OK", "status-ok");
+        } catch (error) {
+          results.map = { ok: false, error: error.message };
+          setMetric(els.mapMetric, "Failed", "status-bad");
+        }
+
+        if (GrabMaps.StreetViewBuilder) {
+          try {
+            streetViewRuntime = new GrabMaps.StreetViewBuilder(client)
+              .enableCompass()
+              .enableNavigationDots()
+              .build();
+            results.streetViewBuilder = {
+              exported: true,
+              methods: methodNames(streetViewRuntime)
+            };
+          } catch (error) {
+            results.streetViewBuilder = { exported: true, ok: false, error: error.message };
+          }
+        } else {
+          results.streetViewBuilder = { exported: false };
+        }
+
+        for (const testCase of TEST_CASES) {
+          const result = await testStreetViewCase(testCase);
+          results.cases.push(result);
+          renderCases(results.cases.concat(TEST_CASES.slice(results.cases.length).map((item) => ({ ...item, state: "pending" }))));
+          if (!firstPhoto && result.photoCount > 0 && result.firstPhoto) {
+            firstPhoto = result.firstPhoto;
+            renderPhoto(firstPhoto);
+            els.openButton.disabled = false;
+          }
+        }
+
+        const totalPhotos = results.cases.reduce((sum, item) => sum + item.photoCount, 0);
+        els.photoMetric.textContent = String(totalPhotos);
+        setMetric(els.streetMetric, totalPhotos > 0 ? "Photos OK" : "No Photos", totalPhotos > 0 ? "status-ok" : "status-bad");
+
+        if (!firstPhoto && streetViewRuntime?.activateAtLocation) {
+          els.openButton.disabled = false;
+        }
+
+        finish(results);
+      }
+
+      async function buildMap() {
+        if (map) map.remove();
+        const grabMap = await new GrabMaps.MapBuilder(client)
+          .setContainer("map")
+          .setCenter([103.8198, 1.3521])
+          .setZoom(4)
+          .enableNavigation()
+          .enableAttribution()
+          .build();
+        map = grabMap.getMap();
+        await waitForMap(map);
+        if (!map.getSource("test-points")) {
+          map.addSource("test-points", {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: TEST_CASES.map((item) => ({
+                type: "Feature",
+                properties: { name: item.name },
+                geometry: { type: "Point", coordinates: [item.lng, item.lat] }
+              }))
+            }
+          });
+          map.addLayer({
+            id: "test-points",
+            type: "circle",
+            source: "test-points",
+            paint: {
+              "circle-radius": 6,
+              "circle-color": "#00b852",
+              "circle-stroke-color": "#ffffff",
+              "circle-stroke-width": 2
+            }
+          });
+        }
+      }
+
+      async function testStreetViewCase(testCase) {
+        const started = performance.now();
+        const params = {
+          lat: testCase.lat,
+          lng: testCase.lng,
+          limit: 10,
+          radius: 1200,
+          projection: "SPHERE"
+        };
+        const expectedSdkUrl = `${BASE_URL}/openstreetcam-api/2.0/photo/?${new URLSearchParams({
+          lat: String(testCase.lat),
+          lng: String(testCase.lng),
+          limit: "10",
+          radius: "1200",
+          zoomLevel: "18",
+          orderBy: "id",
+          orderDirection: "desc",
+          projection: "SPHERE"
+        })}`;
+
+        try {
+          const sdkResponse = await client.streetView.findNearbyPhotos(testCase.lat, testCase.lng, params);
+          const photos = Array.isArray(sdkResponse) ? sdkResponse : [];
+          return {
+            ...testCase,
+            state: photos.length ? "ok" : "empty",
+            elapsedMs: Math.round(performance.now() - started),
+            sdkMethod: "client.streetView.findNearbyPhotos",
+            expectedSdkUrl,
+            photoCount: photos.length,
+            firstPhoto: photos[0] ? serializePhoto(photos[0]) : null,
+            sampleIds: photos.slice(0, 5).map((photo) => photo.id)
+          };
+        } catch (error) {
+          return {
+            ...testCase,
+            state: "error",
+            elapsedMs: Math.round(performance.now() - started),
+            sdkMethod: "client.streetView.findNearbyPhotos",
+            expectedSdkUrl,
+            photoCount: 0,
+            error: error.message
+          };
+        }
+      }
+
+      function finish(results) {
+        resultSnapshot = JSON.parse(redact(JSON.stringify(results, null, 2)));
+        els.rawOutput.textContent = JSON.stringify(resultSnapshot, null, 2);
+        if (results.cases?.length) {
+          const empty = results.cases.filter((item) => item.state === "empty").length;
+          const failed = results.cases.filter((item) => item.state === "error").length;
+          const photos = results.cases.reduce((sum, item) => sum + item.photoCount, 0);
+          els.notes.textContent = photos
+            ? `Street-view photos were returned for ${photos} result(s). The SDK viewer button can attempt to open the first photo.`
+            : `No SDK street-view photos were returned. ${empty} coordinate checks resolved to an empty array; ${failed} errored.`;
+        }
+        els.runButton.disabled = false;
+      }
+
+      function renderCases(cases) {
+        els.caseList.innerHTML = cases.map((item) => {
+          const status = item.state === "ok"
+            ? `<strong class="status-ok">${item.photoCount} photo(s)</strong>`
+            : item.state === "error"
+              ? `<strong class="status-bad">Error</strong>`
+              : item.state === "empty"
+                ? `<strong class="status-bad">Empty array</strong>`
+                : `<strong class="status-warn">Pending</strong>`;
+          return `
+            <article class="case">
+              <div class="case-top">
+                <div>
+                  <strong>${escapeHtml(item.name)}</strong><br>
+                  <small>${item.lat}, ${item.lng}</small>
+                </div>
+                ${status}
+              </div>
+              ${item.state && item.state !== "pending" ? `<pre>${escapeHtml(JSON.stringify({
+                elapsedMs: item.elapsedMs,
+                photoCount: item.photoCount,
+                expectedSdkUrl: item.expectedSdkUrl,
+                sampleIds: item.sampleIds,
+                error: item.error
+              }, null, 2))}</pre>` : ""}
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderPhoto(photo) {
+        const url = bestPhotoUrl(photo);
+        if (!url) {
+          els.viewer.textContent = "A photo object returned, but no image URL field was present.";
+          return;
+        }
+        const img = document.createElement("img");
+        img.alt = "GrabMaps SDK street-view result";
+        img.src = url;
+        els.viewer.replaceChildren(img);
+      }
+
+      function bestPhotoUrl(photo) {
+        return photo.imageUrl || photo.imageProcUrl || photo.imageLthUrl || photo.imageThUrl || photo.fileurlProc || photo.fileurl || "";
+      }
+
+      function serializePhoto(photo) {
+        return {
+          id: photo.id || photo.photoId || null,
+          lat: photo.lat ?? photo.location?.lat ?? null,
+          lng: photo.lng ?? photo.location?.lng ?? null,
+          heading: photo.heading ?? photo.bearing ?? null,
+          projection: photo.projection ?? null,
+          imageUrlPresent: !!bestPhotoUrl(photo),
+          keys: Object.keys(photo).sort()
+        };
+      }
+
+      function waitForMap(currentMap) {
+        if (currentMap.loaded()) return Promise.resolve();
+        return new Promise((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          currentMap.once("load", done);
+          currentMap.once("idle", done);
+          window.setTimeout(done, 3000);
+        });
+      }
+
+      function methodNames(value) {
+        const names = new Set();
+        let cursor = value;
+        while (cursor && cursor !== Object.prototype) {
+          Object.getOwnPropertyNames(cursor)
+            .filter((name) => typeof value[name] === "function" && name !== "constructor")
+            .forEach((name) => names.add(name));
+          cursor = Object.getPrototypeOf(cursor);
+        }
+        return [...names].sort();
+      }
+
+      function setMetric(element, text, className) {
+        element.textContent = text;
+        element.className = className;
+      }
+
+      function addNote(message) {
+        els.notes.textContent = message;
+      }
+
+      function redact(text) {
+        return text
+          .replace(/bm_[A-Za-z0-9_]+/g, "bm_[REDACTED]")
+          .replace(/Bearer\\s+[A-Za-z0-9_.$-]+/g, "Bearer [REDACTED]");
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+    </script>
+  </body>
+</html>

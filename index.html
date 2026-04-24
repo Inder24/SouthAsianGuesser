@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SEA Street Guess</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="./styles.css?v=catalog-6" />
+    <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+    <script type="module" src="https://maps.grab.com/developer/assets/js/grabmaps.es.js"></script>
+    <script src="./config.local.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar" aria-label="Game controls">
+        <div>
+          <p class="eyebrow">GrabMaps street challenge</p>
+          <h1>SEA Street Guess</h1>
+        </div>
+        <div class="score-strip">
+          <div>
+            <span>Round</span>
+            <strong id="roundText">0/5</strong>
+          </div>
+          <div>
+            <span>Score</span>
+            <strong id="scoreText">0</strong>
+          </div>
+          <div>
+            <span>Timer</span>
+            <strong id="timerText">1:00</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="game-grid">
+        <div class="street-card">
+          <div class="viewer-toolbar">
+            <div>
+              <span id="countryText">Southeast Asia</span>
+              <strong id="statusText">Press Play to start</strong>
+            </div>
+            <button id="playButton" class="primary-button" type="button">Play</button>
+          </div>
+          <div class="viewer" id="viewer">
+            <canvas id="panoCanvas" width="1600" height="900"></canvas>
+            <div class="viewer-controls" aria-label="Photo controls">
+              <button id="zoomOutButton" type="button" aria-label="Zoom out" title="Zoom out">-</button>
+              <button id="resetViewButton" type="button" aria-label="Reset view" title="Reset view">↺</button>
+              <button id="zoomInButton" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+            </div>
+            <div class="empty-state" id="emptyState">
+              <strong>Ready when you are</strong>
+              <span>Use the photo clues, then pin the place on the map.</span>
+            </div>
+          </div>
+          <div class="round-actions">
+            <button id="submitButton" class="primary-button" type="button" disabled>Submit Guess</button>
+            <button id="nextButton" class="ghost-button" type="button" disabled>Next Round</button>
+            <span id="hintText">Click the map to place your pin.</span>
+          </div>
+        </div>
+
+        <div class="map-card">
+          <div id="map"></div>
+          <div class="result-panel" id="resultPanel" hidden>
+            <span id="distanceText">0 km away</span>
+            <strong id="roundScoreText">+0</strong>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js?v=catalog-6"></script>
+  </body>
+</html>
