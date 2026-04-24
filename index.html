@@ -5,35 +5,60 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SEA Street Guess</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="./styles.css?v=game-v11" />
+    <link rel="stylesheet" href="./styles.css?v=game-v15" />
     <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
     <script type="module" src="https://maps.grab.com/developer/assets/js/grabmaps.es.js"></script>
     <script src="./config.local.js"></script>
   </head>
   <body>
-    <main class="app-shell">
+    <section class="start-screen" id="startScreen" aria-label="Game start screen">
+      <div class="start-copy">
+        <p class="eyebrow">Southeast Asia map challenge</p>
+        <div class="graphic-title" aria-label="SEA Street Guess">
+          <span>SEA</span>
+          <strong>Street</strong>
+          <em>Guess</em>
+        </div>
+        <p class="start-description">
+          Drop into streets across Southeast Asia, inspect the scene, and place your pin before the clock runs down.
+        </p>
+        <div class="start-actions">
+          <div class="start-choice">
+            <span>Choose Game</span>
+            <div class="start-mode-switch" aria-label="Start game mode">
+              <button class="start-mode-button active" type="button" data-mode="classic">Classic</button>
+              <button class="start-mode-button" type="button" data-mode="country">Country</button>
+            </div>
+          </div>
+          <div class="start-choice">
+            <span>Choose View</span>
+            <div class="start-source-switch" aria-label="Start view source">
+              <button class="start-source-button active" type="button" data-source="real">Real View</button>
+              <button class="start-source-button" type="button" data-source="photo">Photo View</button>
+            </div>
+          </div>
+          <button id="launchButton" class="launch-button" type="button" disabled>Start Run</button>
+        </div>
+      </div>
+      <div class="title-map" aria-hidden="true">
+        <div class="map-cardlet cardlet-a"></div>
+        <div class="map-cardlet cardlet-b"></div>
+        <div class="map-cardlet cardlet-c"></div>
+        <div class="route-line"></div>
+        <div class="route-pin pin-a"></div>
+        <div class="route-pin pin-b"></div>
+        <div class="route-pin pin-c"></div>
+      </div>
+    </section>
+
+    <main class="app-shell is-waiting" id="gameShell" aria-hidden="true">
       <section class="topbar" aria-label="Game controls">
         <div class="brand-lockup">
           <p class="eyebrow">GrabMaps street challenge</p>
           <h1>SEA Street Guess</h1>
           <span id="mapStatusText">Map standing by</span>
         </div>
-        <div class="control-stack">
-          <div class="control-group">
-            <span>Game</span>
-            <div class="mode-switch" aria-label="Game mode">
-              <button class="mode-button active" type="button" data-mode="classic">Classic</button>
-              <button class="mode-button" type="button" data-mode="country">Country</button>
-            </div>
-          </div>
-          <div class="control-group">
-            <span>View</span>
-            <div class="source-switch" aria-label="View source">
-              <button class="source-button active" type="button" data-source="real">Real View</button>
-              <button class="source-button" type="button" data-source="photo">Photo View</button>
-            </div>
-          </div>
-        </div>
+        <button id="backButton" class="ghost-button toolbar-back" type="button">Title Screen</button>
         <div class="score-strip">
           <div>
             <span>Round</span>
@@ -116,6 +141,6 @@
       </section>
     </main>
 
-    <script type="module" src="./app.js?v=game-v11"></script>
+    <script type="module" src="./app.js?v=game-v15"></script>
   </body>
 </html>

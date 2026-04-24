@@ -1,5 +1,5 @@
 import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-import { GAME_ROUNDS } from "./game-rounds.js?v=game-v11";
+import { GAME_ROUNDS, REAL_VIEW_LOCATIONS } from "./game-rounds.js?v=game-v15";
 
 const GRABMAPS_SDK_BASE_URL = "https://maps.grab.com";
 const GRABMAPS_API_KEY = window.GRABMAPS_API_KEY || "";
@@ -67,6 +67,10 @@ const MODES = {
 };
 
 const els = {
+  startScreen: document.querySelector("#startScreen"),
+  gameShell: document.querySelector("#gameShell"),
+  launchButton: document.querySelector("#launchButton"),
+  backButton: document.querySelector("#backButton"),
   playButton: document.querySelector("#playButton"),
   submitButton: document.querySelector("#submitButton"),
   nextButton: document.querySelector("#nextButton"),
@@ -94,8 +98,8 @@ const els = {
   canvas: document.querySelector("#panoCanvas"),
   countryPanel: document.querySelector("#countryPanel"),
   roundBadges: document.querySelector("#roundBadges"),
-  modeButtons: [...document.querySelectorAll(".mode-button")],
-  sourceButtons: [...document.querySelectorAll(".source-button")]
+  startModeButtons: [...document.querySelectorAll(".start-mode-button")],
+  startSourceButtons: [...document.querySelectorAll(".start-source-button")]
 };
 
 const ctx = els.canvas.getContext("2d");
@@ -104,7 +108,10 @@ const state = {
   map: null,
   usingGrabMap: false,
   mode: "classic",
+  startMode: "classic",
   sourceMode: "real",
+  startSourceMode: "real",
+  launched: false,
   round: 0,
   totalScore: 0,
   streak: 0,
@@ -122,7 +129,8 @@ const state = {
   zoom: 1.18,
   drag: null,
   roundDeck: [],
-  lastOpeningRoundId: ""
+  lastOpeningRoundId: "",
+  usedKartaPhotoIds: new Set()
 };
 
 updateHud();
@@ -139,6 +147,7 @@ async function init() {
     renderCountryChoices();
     updatePlayAvailability();
     updateSourceButtons();
+    els.launchButton.disabled = false;
     setStatus("Choose a mode, then press Play");
   } catch (error) {
     console.error(error);
@@ -208,17 +217,19 @@ async function initMap() {
 }
 
 function bindEvents() {
+  els.launchButton.addEventListener("click", launchGame);
+  els.backButton.addEventListener("click", showTitleScreen);
   els.playButton.addEventListener("click", startGame);
   els.submitButton.addEventListener("click", () => finishRound(false));
   els.nextButton.addEventListener("click", startRound);
   els.zoomInButton.addEventListener("click", () => zoomPhoto(0.25));
   els.zoomOutButton.addEventListener("click", () => zoomPhoto(-0.25));
   els.resetViewButton.addEventListener("click", resetPhotoView);
-  els.modeButtons.forEach((button) => {
-    button.addEventListener("click", () => setMode(button.dataset.mode));
+  els.startModeButtons.forEach((button) => {
+    button.addEventListener("click", () => setStartMode(button.dataset.mode));
   });
-  els.sourceButtons.forEach((button) => {
-    button.addEventListener("click", () => setSourceMode(button.dataset.source));
+  els.startSourceButtons.forEach((button) => {
+    button.addEventListener("click", () => setStartSourceMode(button.dataset.source));
   });
   window.addEventListener("resize", drawPanorama);
 
@@ -254,11 +265,69 @@ function bindEvents() {
   }, { passive: false });
 }
 
+async function launchGame() {
+  if (state.launched) return;
+  state.launched = true;
+  setMode(state.startMode);
+  setSourceMode(state.startSourceMode);
+  els.startScreen.hidden = true;
+  els.gameShell.classList.remove("is-waiting");
+  els.gameShell.removeAttribute("aria-hidden");
+  window.setTimeout(() => {
+    state.map?.resize?.();
+    drawPanorama();
+  }, 50);
+  await startGame();
+}
+
+function showTitleScreen() {
+  clearTimer();
+  clearMapOverlays();
+  clearViewer();
+  state.launched = false;
+  state.phase = "idle";
+  state.round = 0;
+  state.totalScore = 0;
+  state.streak = 0;
+  state.countryGuess = "";
+  state.guess = null;
+  state.target = null;
+  state.photo = null;
+  els.resultPanel.hidden = true;
+  els.submitButton.disabled = true;
+  els.nextButton.disabled = true;
+  els.playButton.disabled = false;
+  els.countryPanel.hidden = true;
+  els.countryText.textContent = "Southeast Asia";
+  els.hintText.textContent = "Click the map to place your pin.";
+  setStatus("Choose a mode, then press Play");
+  updateHud();
+  updatePlayAvailability();
+  els.gameShell.classList.add("is-waiting");
+  els.gameShell.setAttribute("aria-hidden", "true");
+  els.startScreen.hidden = false;
+}
+
+function setStartMode(mode) {
+  if (!MODES[mode]) return;
+  state.startMode = mode;
+  els.startModeButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === mode);
+  });
+}
+
+function setStartSourceMode(sourceMode) {
+  if (!["real", "photo"].includes(sourceMode)) return;
+  state.startSourceMode = sourceMode;
+  els.startSourceButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.source === sourceMode);
+  });
+}
+
 function setMode(mode) {
   if (!MODES[mode] || state.phase === "loading" || state.phase === "playing") return;
   state.mode = mode;
   state.secondsLeft = modeConfig().seconds;
-  els.modeButtons.forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   els.countryPanel.hidden = mode !== "country";
   els.submitButton.textContent = mode === "country" ? "Lock Country" : "Submit Guess";
   clearMapOverlays();
@@ -278,7 +347,6 @@ function setMode(mode) {
 function setSourceMode(sourceMode) {
   if (!["real", "photo"].includes(sourceMode) || state.phase === "loading" || state.phase === "playing") return;
   state.sourceMode = sourceMode;
-  els.sourceButtons.forEach((button) => button.classList.toggle("active", button.dataset.source === sourceMode));
   clearMapOverlays();
   clearViewer();
   state.round = 0;
@@ -357,15 +425,21 @@ async function startRound() {
 }
 
 async function pickLoadableRound() {
-  const maxAttempts = Math.max(1, GAME_ROUNDS.length);
+  const maxAttempts = Math.max(1, state.sourceMode === "real" ? Math.min(24, roundPool().length) : roundPool().length);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const catalogRound = pickCatalogRound();
     const roundData = state.sourceMode === "real" ? await attachKartaPhoto(catalogRound) : catalogRound;
+    if (state.sourceMode === "real" && roundData.photo.provider !== "KartaView") {
+      continue;
+    }
     try {
       await loadPanorama(roundData.photo);
+      if (roundData.photo.provider === "KartaView" && roundData.photo.kartaPhotoId) {
+        state.usedKartaPhotoIds.add(roundData.photo.kartaPhotoId);
+      }
       return roundData;
     } catch {
-      if (roundData.photo.provider === "KartaView") {
+      if (roundData.photo.provider === "KartaView" && state.sourceMode !== "real") {
         try {
           await loadPanorama(catalogRound.photo);
           return catalogRound;
@@ -410,7 +484,9 @@ function pickCatalogRound() {
 async function attachKartaPhoto(roundData) {
   try {
     const kartaPhoto = await findKartaPhoto(roundData.location);
-    if (!kartaPhoto) return roundData;
+    if (!kartaPhoto) {
+      return state.sourceMode === "real" ? nullKartaRound(roundData) : roundData;
+    }
     return {
       location: {
         ...roundData.location,
@@ -421,8 +497,15 @@ async function attachKartaPhoto(roundData) {
     };
   } catch (error) {
     console.warn("KartaView photo lookup failed; using catalog image.", error);
-    return roundData;
+    return state.sourceMode === "real" ? nullKartaRound(roundData) : roundData;
   }
+}
+
+function nullKartaRound(roundData) {
+  return {
+    ...roundData,
+    photo: { ...roundData.photo, provider: "KartaMissing" }
+  };
 }
 
 async function findKartaPhoto(location) {
@@ -449,7 +532,12 @@ async function findKartaPhoto(location) {
 
     const candidates = nearby?.currentPageItems || [];
     const shuffledCandidates = shuffle(candidates)
-      .filter((item) => item?.id && Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
+      .filter((item) => (
+        item?.id
+        && !state.usedKartaPhotoIds.has(String(item.id))
+        && Number.isFinite(Number(item.lat))
+        && Number.isFinite(Number(item.lng))
+      ));
 
     for (const item of shuffledCandidates) {
       const photo = await getKartaPhotoDetails(item.id, item);
@@ -469,6 +557,8 @@ async function getKartaPhotoDetails(photoId, nearbyItem) {
     );
     const data = details?.result?.data;
     if (!data) return null;
+    const kartaPhotoId = String(data.id || photoId);
+    if (state.usedKartaPhotoIds.has(kartaPhotoId)) return null;
 
     const fallbackUrls = [
       data.imageProcUrl,
@@ -484,6 +574,7 @@ async function getKartaPhotoDetails(photoId, nearbyItem) {
 
     return {
       id: `karta-${data.id || photoId}`,
+      kartaPhotoId,
       provider: "KartaView",
       lat,
       lng,
@@ -731,10 +822,8 @@ function updateCountryButtons(revealed = false) {
 }
 
 function updateSourceButtons() {
-  const locked = state.phase === "loading" || state.phase === "playing";
-  els.sourceButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.source === state.sourceMode);
-    button.disabled = locked;
+  els.startSourceButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.source === state.startSourceMode);
   });
 }
 
@@ -900,7 +989,7 @@ function setMapStatus(message) {
 }
 
 function updatePlayAvailability() {
-  const hasReadyRound = GAME_ROUNDS.length > 0;
+  const hasReadyRound = roundPool().length > 0;
   const busy = state.phase === "loading" || state.phase === "playing";
   const betweenRounds = state.phase === "result" && state.round < modeConfig().totalRounds;
   els.playButton.disabled = busy || betweenRounds || !hasReadyRound;
@@ -937,7 +1026,7 @@ function waitForMap(map) {
 }
 
 function buildRoundDeck(avoidFirstId = "") {
-  const deck = shuffle(GAME_ROUNDS);
+  const deck = shuffle(roundPool());
   if (avoidFirstId && deck.length > 1 && deck[0]?.id === avoidFirstId) {
     const swapIndex = deck.findIndex((round) => round.id !== avoidFirstId);
     if (swapIndex > 0) {
@@ -945,6 +1034,10 @@ function buildRoundDeck(avoidFirstId = "") {
     }
   }
   return deck;
+}
+
+function roundPool() {
+  return state.sourceMode === "real" ? REAL_VIEW_LOCATIONS : GAME_ROUNDS;
 }
 
 function shuffle(items) {
