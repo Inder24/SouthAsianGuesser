@@ -1,8 +1,12 @@
 import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-import { GAME_ROUNDS } from "./game-rounds.js?v=game-v8";
+import { GAME_ROUNDS } from "./game-rounds.js?v=game-v10";
 
 const GRABMAPS_SDK_BASE_URL = "https://maps.grab.com";
 const GRABMAPS_API_KEY = window.GRABMAPS_API_KEY || "";
+const KARTAVIEW_API_BASE_URL = "https://kartaview.org";
+const KARTAVIEW_DETAILS_BASE_URL = "https://api.openstreetcam.org";
+const KARTAVIEW_SEARCH_RADIUS_METERS = 1200;
+const KARTAVIEW_FETCH_TIMEOUT_MS = 6500;
 const COUNTRY_CHOICES = ["Singapore", "Thailand", "Malaysia", "Vietnam", "Indonesia", "Philippines", "Cambodia", "Laos", "Myanmar", "Brunei"];
 const PRE_GUESS_TAG_REWRITES = new Map([
   ["thai script", "local script"],
@@ -81,6 +85,7 @@ const els = {
   roundScoreText: document.querySelector("#roundScoreText"),
   placeText: document.querySelector("#placeText"),
   grabContextText: document.querySelector("#grabContextText"),
+  sourceText: document.querySelector("#sourceText"),
   clueText: document.querySelector("#clueText"),
   emptyState: document.querySelector("#emptyState"),
   zoomInButton: document.querySelector("#zoomInButton"),
@@ -324,12 +329,20 @@ async function startRound() {
 async function pickLoadableRound() {
   const maxAttempts = Math.max(1, GAME_ROUNDS.length);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const roundData = pickCatalogRound();
+    const catalogRound = pickCatalogRound();
+    const roundData = await attachKartaPhoto(catalogRound);
     try {
       await loadPanorama(roundData.photo);
       return roundData;
     } catch {
-      /* Try another catalog entry if an external image is unavailable. */
+      if (roundData.photo.provider === "KartaView") {
+        try {
+          await loadPanorama(catalogRound.photo);
+          return catalogRound;
+        } catch {
+          /* Try another catalog entry if both KartaView and the catalog image fail. */
+        }
+      }
     }
   }
   throw new Error("No loadable catalog rounds available.");
@@ -353,6 +366,7 @@ function pickCatalogRound() {
     },
     photo: {
       id: round.id,
+      provider: "Catalog",
       lat: round.lat,
       lng: round.lng,
       imageUrl: round.imageUrl,
@@ -361,6 +375,106 @@ function pickCatalogRound() {
       attribution: round.attribution
     }
   };
+}
+
+async function attachKartaPhoto(roundData) {
+  try {
+    const kartaPhoto = await findKartaPhoto(roundData.location);
+    if (!kartaPhoto) return roundData;
+    return {
+      location: {
+        ...roundData.location,
+        lat: kartaPhoto.lat,
+        lng: kartaPhoto.lng
+      },
+      photo: kartaPhoto
+    };
+  } catch (error) {
+    console.warn("KartaView photo lookup failed; using catalog image.", error);
+    return roundData;
+  }
+}
+
+async function findKartaPhoto(location) {
+  const searches = [
+    { radius: KARTAVIEW_SEARCH_RADIUS_METERS, fieldOfView: "360" },
+    { radius: KARTAVIEW_SEARCH_RADIUS_METERS }
+  ];
+
+  for (const search of searches) {
+    const body = new URLSearchParams({
+      lat: String(location.lat),
+      lng: String(location.lng),
+      radius: String(search.radius),
+      page: "1",
+      ipp: "12"
+    });
+    if (search.fieldOfView) body.set("fieldOfView", search.fieldOfView);
+
+    const nearby = await fetchJsonWithTimeout(`${KARTAVIEW_API_BASE_URL}/1.0/list/nearby-photos/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body
+    }, KARTAVIEW_FETCH_TIMEOUT_MS);
+
+    const candidates = nearby?.currentPageItems || [];
+    const shuffledCandidates = shuffle(candidates)
+      .filter((item) => item?.id && Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
+
+    for (const item of shuffledCandidates) {
+      const photo = await getKartaPhotoDetails(item.id, item);
+      if (photo) return photo;
+    }
+  }
+
+  return null;
+}
+
+async function getKartaPhotoDetails(photoId, nearbyItem) {
+  try {
+    const details = await fetchJsonWithTimeout(
+      `${KARTAVIEW_DETAILS_BASE_URL}/2.0/photo/${encodeURIComponent(photoId)}`,
+      {},
+      KARTAVIEW_FETCH_TIMEOUT_MS
+    );
+    const data = details?.result?.data;
+    if (!data) return null;
+
+    const fallbackUrls = [
+      optimizeKartaImageUrl(data.imageProcUrl),
+      data.imageProcUrl,
+      data.imageLthUrl,
+      data.imageThUrl
+    ].filter(Boolean);
+    if (!fallbackUrls.length) return null;
+
+    const lat = Number(data.lat || nearbyItem.lat);
+    const lng = Number(data.lng || nearbyItem.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    return {
+      id: `karta-${data.id || photoId}`,
+      provider: "KartaView",
+      lat,
+      lng,
+      imageUrl: fallbackUrls[0],
+      fallbackUrls,
+      sourceUrl: `https://kartaview.org/details/${data.sequenceId || nearbyItem.sequence_id}/${data.id || photoId}`,
+      attribution: `KartaView public imagery${data.username ? ` by ${data.username}` : ""}, CC BY-SA 4.0`,
+      projection: data.projection || nearbyItem.projection || "",
+      fieldOfView: data.fieldOfView || nearbyItem.field_of_view || "",
+      heading: data.heading || nearbyItem.heading || ""
+    };
+  } catch (error) {
+    console.warn("KartaView photo details failed.", error);
+    return null;
+  }
+}
+
+function optimizeKartaImageUrl(url) {
+  if (!url || !url.includes("cdn.kartaview.org/pr:sharp/")) return "";
+  if (url.includes("cdn.kartaview.org/pr:sharp/rs:fit:")) return url;
+  return url.replace("/pr:sharp/", "/pr:sharp/rs:fit:4096:2048/");
 }
 
 function loadPanorama(photo) {
@@ -491,6 +605,7 @@ function finishRound(timedOut) {
   els.roundScoreText.textContent = `+${score.toLocaleString()}`;
   els.placeText.textContent = `${state.target.name}${state.target.city ? `, ${state.target.city}` : ""}`;
   els.clueText.textContent = buildClueText(state.target);
+  els.sourceText.textContent = buildSourceText(state.photo);
   els.grabContextText.textContent = "Checking nearby map context...";
   els.resultPanel.hidden = false;
   els.countryText.textContent = `${state.target.name}, ${state.target.country}`;
@@ -542,6 +657,18 @@ async function grabGatewayJson(path) {
   });
   if (!response.ok) throw new Error(`GrabMaps gateway failed: ${response.status}`);
   return response.json();
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeout = 6000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+    return response.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function renderCountryChoices() {
@@ -741,6 +868,11 @@ function updatePlayAvailability() {
 function buildClueText(location) {
   const tags = location.clueTypes?.length ? location.clueTypes.join(", ") : "street scene";
   return location.reveal ? `${tags}. ${location.reveal}` : tags;
+}
+
+function buildSourceText(photo) {
+  const provider = photo?.provider === "KartaView" ? "KartaView live imagery" : "Curated catalog image";
+  return photo?.attribution ? `${provider}: ${photo.attribution}` : provider;
 }
 
 function modeConfig() {
