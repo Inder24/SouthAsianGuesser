@@ -1,5 +1,5 @@
 import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-import { GAME_ROUNDS } from "./game-rounds.js?v=game-v10";
+import { GAME_ROUNDS } from "./game-rounds.js?v=game-v11";
 
 const GRABMAPS_SDK_BASE_URL = "https://maps.grab.com";
 const GRABMAPS_API_KEY = window.GRABMAPS_API_KEY || "";
@@ -94,7 +94,8 @@ const els = {
   canvas: document.querySelector("#panoCanvas"),
   countryPanel: document.querySelector("#countryPanel"),
   roundBadges: document.querySelector("#roundBadges"),
-  modeButtons: [...document.querySelectorAll(".mode-button")]
+  modeButtons: [...document.querySelectorAll(".mode-button")],
+  sourceButtons: [...document.querySelectorAll(".source-button")]
 };
 
 const ctx = els.canvas.getContext("2d");
@@ -103,6 +104,7 @@ const state = {
   map: null,
   usingGrabMap: false,
   mode: "classic",
+  sourceMode: "real",
   round: 0,
   totalScore: 0,
   streak: 0,
@@ -136,6 +138,7 @@ async function init() {
     state.roundDeck = buildRoundDeck();
     renderCountryChoices();
     updatePlayAvailability();
+    updateSourceButtons();
     setStatus("Choose a mode, then press Play");
   } catch (error) {
     console.error(error);
@@ -214,6 +217,9 @@ function bindEvents() {
   els.modeButtons.forEach((button) => {
     button.addEventListener("click", () => setMode(button.dataset.mode));
   });
+  els.sourceButtons.forEach((button) => {
+    button.addEventListener("click", () => setSourceMode(button.dataset.source));
+  });
   window.addEventListener("resize", drawPanorama);
 
   els.canvas.addEventListener("pointerdown", (event) => {
@@ -264,8 +270,29 @@ function setMode(mode) {
   state.phase = "idle";
   updateHud();
   updatePlayAvailability();
+  updateSourceButtons();
   setStatus(`${modeConfig().label} mode ready`);
   els.hintText.textContent = modeConfig().hint;
+}
+
+function setSourceMode(sourceMode) {
+  if (!["real", "photo"].includes(sourceMode) || state.phase === "loading" || state.phase === "playing") return;
+  state.sourceMode = sourceMode;
+  els.sourceButtons.forEach((button) => button.classList.toggle("active", button.dataset.source === sourceMode));
+  clearMapOverlays();
+  clearViewer();
+  state.round = 0;
+  state.totalScore = 0;
+  state.streak = 0;
+  state.countryGuess = "";
+  state.phase = "idle";
+  updateHud();
+  updatePlayAvailability();
+  updateSourceButtons();
+  setStatus(`${sourceMode === "real" ? "Real View" : "Photo View"} ready`);
+  els.hintText.textContent = sourceMode === "real"
+    ? "KartaView street imagery will load where available."
+    : "Curated catalog photos will load.";
 }
 
 async function startGame() {
@@ -297,6 +324,7 @@ async function startRound() {
   els.resultPanel.hidden = true;
   els.countryPanel.hidden = state.mode !== "country";
   updateCountryButtons();
+  updateSourceButtons();
   updateHud();
   setStatus("Loading round...");
 
@@ -313,6 +341,7 @@ async function startRound() {
     state.map.flyTo({ center: [105, 8], zoom: 4, duration: 600 });
     state.phase = "playing";
     updateCountryButtons();
+    updateSourceButtons();
     els.hintText.textContent = modeConfig().hint;
     setStatus(modeConfig().prompt);
     startTimer();
@@ -323,6 +352,7 @@ async function startRound() {
     setStatus("Could not load the selected photo. Try Play again.");
     updateHud();
     updatePlayAvailability();
+    updateSourceButtons();
   }
 }
 
@@ -330,7 +360,7 @@ async function pickLoadableRound() {
   const maxAttempts = Math.max(1, GAME_ROUNDS.length);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const catalogRound = pickCatalogRound();
-    const roundData = await attachKartaPhoto(catalogRound);
+    const roundData = state.sourceMode === "real" ? await attachKartaPhoto(catalogRound) : catalogRound;
     try {
       await loadPanorama(roundData.photo);
       return roundData;
@@ -441,8 +471,8 @@ async function getKartaPhotoDetails(photoId, nearbyItem) {
     if (!data) return null;
 
     const fallbackUrls = [
-      optimizeKartaImageUrl(data.imageProcUrl),
       data.imageProcUrl,
+      ...optimizeKartaImageUrls(data.imageProcUrl),
       data.imageLthUrl,
       data.imageThUrl
     ].filter(Boolean);
@@ -471,10 +501,13 @@ async function getKartaPhotoDetails(photoId, nearbyItem) {
   }
 }
 
-function optimizeKartaImageUrl(url) {
-  if (!url || !url.includes("cdn.kartaview.org/pr:sharp/")) return "";
-  if (url.includes("cdn.kartaview.org/pr:sharp/rs:fit:")) return url;
-  return url.replace("/pr:sharp/", "/pr:sharp/rs:fit:4096:2048/");
+function optimizeKartaImageUrls(url) {
+  if (!url || !url.includes("cdn.kartaview.org/pr:sharp/")) return [];
+  if (url.includes("cdn.kartaview.org/pr:sharp/rs:fit:")) return [url];
+  return [
+    url.replace("/pr:sharp/", "/pr:sharp/rs:fit:8192:4096/"),
+    url.replace("/pr:sharp/", "/pr:sharp/rs:fit:4096:2048/")
+  ];
 }
 
 function loadPanorama(photo) {
@@ -615,6 +648,7 @@ function finishRound(timedOut) {
   setStatus(timedOut ? "Time is up" : "Round scored");
   updateHud();
   updateCountryButtons(true);
+  updateSourceButtons();
   loadGrabContext(answer);
 }
 
@@ -693,6 +727,14 @@ function updateCountryButtons(revealed = false) {
     button.classList.toggle("correct", revealed && country === state.target?.country);
     button.classList.toggle("wrong", revealed && country === state.countryGuess && country !== state.target?.country);
     button.disabled = state.mode !== "country" || (state.phase !== "playing" && !revealed);
+  });
+}
+
+function updateSourceButtons() {
+  const locked = state.phase === "loading" || state.phase === "playing";
+  els.sourceButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.source === state.sourceMode);
+    button.disabled = locked;
   });
 }
 

@@ -55,7 +55,7 @@ button {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(420px, 0.9fr);
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, auto) minmax(420px, 0.9fr);
   align-items: center;
   gap: 14px;
   border-radius: 8px;
@@ -89,18 +89,37 @@ h1 {
   font-weight: 800;
 }
 
-.mode-switch {
+.control-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.control-group {
+  display: grid;
+  gap: 4px;
+}
+
+.control-group > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.mode-switch,
+.source-switch {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 5px;
-  width: 226px;
+  width: 260px;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f4f7f5;
 }
 
-.mode-button {
+.mode-button,
+.source-button {
   min-height: 38px;
   border: 0;
   border-radius: 6px;
@@ -110,7 +129,8 @@ h1 {
   cursor: pointer;
 }
 
-.mode-button.active {
+.mode-button.active,
+.source-button.active {
   background: var(--ink);
   color: #fff;
   box-shadow: 0 8px 20px rgba(18, 34, 29, 0.18);
@@ -476,7 +496,8 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .mode-switch {
+  .mode-switch,
+  .source-switch {
     width: 100%;
   }
 

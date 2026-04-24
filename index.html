@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SEA Street Guess</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="./styles.css?v=game-v10" />
+    <link rel="stylesheet" href="./styles.css?v=game-v11" />
     <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
     <script type="module" src="https://maps.grab.com/developer/assets/js/grabmaps.es.js"></script>
     <script src="./config.local.js"></script>
@@ -18,9 +18,21 @@
           <h1>SEA Street Guess</h1>
           <span id="mapStatusText">Map standing by</span>
         </div>
-        <div class="mode-switch" aria-label="Game mode">
-          <button class="mode-button active" type="button" data-mode="classic">Classic</button>
-          <button class="mode-button" type="button" data-mode="country">Country</button>
+        <div class="control-stack">
+          <div class="control-group">
+            <span>Game</span>
+            <div class="mode-switch" aria-label="Game mode">
+              <button class="mode-button active" type="button" data-mode="classic">Classic</button>
+              <button class="mode-button" type="button" data-mode="country">Country</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <span>View</span>
+            <div class="source-switch" aria-label="View source">
+              <button class="source-button active" type="button" data-source="real">Real View</button>
+              <button class="source-button" type="button" data-source="photo">Photo View</button>
+            </div>
+          </div>
         </div>
         <div class="score-strip">
           <div>
@@ -104,6 +116,6 @@
       </section>
     </main>
 
-    <script type="module" src="./app.js?v=game-v10"></script>
+    <script type="module" src="./app.js?v=game-v11"></script>
   </body>
 </html>
