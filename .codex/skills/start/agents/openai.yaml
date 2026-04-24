@@ -1,0 +1,4 @@
+interface:
+  display_name: "Start SEA Street Guess"
+  short_description: "Boot the local SEA Street Guess app"
+  default_prompt: "Use $start to start the SEA Street Guess app locally."
