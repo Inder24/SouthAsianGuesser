@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 PORT="${PORT:-5177}"
 HOST="${HOST:-127.0.0.1}"
-URL="http://localhost:${PORT}/?v=catalog-6"
+URL="http://localhost:${PORT}/?v=game-v7"
 RUN_DIR=".codex/run"
 LOG_FILE="${RUN_DIR}/server-${PORT}.log"
 PID_FILE="${RUN_DIR}/server-${PORT}.pid"

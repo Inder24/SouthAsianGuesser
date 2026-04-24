@@ -1,6 +1,6 @@
 # SEA Street Guess
 
-A lightweight browser guessing game for Southeast Asia. Each round shows a location photo, lets the player inspect it, and uses a GrabMaps-powered map for placing guesses and calculating distance.
+A lightweight browser guessing game for Southeast Asia. Each round shows a location photo, lets the player inspect it, and uses GrabMaps for maps, scoring context, reverse geocoding, and nearby POI reveals.
 
 ## Run locally
 
@@ -26,6 +26,8 @@ A lightweight browser guessing game for Southeast Asia. Each round shows a locat
 
 ## Notes
 
-- The game uses a hardcoded catalog of SEA location photos for gameplay.
-- GrabMaps is used for the map UI and distance scoring.
+- Classic mode uses a map pin and distance-based scoring.
+- Country mode is a faster country-choice challenge with streak scoring.
+- The game uses a hardcoded catalog of SEA location photos with clue metadata for gameplay.
+- GrabMaps is used for the map UI, distance scoring, reverse geocode context, and nearby POI reveal text.
 - `grabmaps-streetview-diagnostic.html` and `grabmaps-streetview-http-check.mjs` are included to test current GrabMaps SDK street-view availability.

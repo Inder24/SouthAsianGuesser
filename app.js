@@ -1,10 +1,25 @@
 import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-import { GAME_ROUNDS } from "./game-rounds.js?v=catalog-6";
+import { GAME_ROUNDS } from "./game-rounds.js?v=game-v7";
 
 const GRABMAPS_SDK_BASE_URL = "https://maps.grab.com";
 const GRABMAPS_API_KEY = window.GRABMAPS_API_KEY || "";
-const ROUND_SECONDS = 60;
-const TOTAL_ROUNDS = 5;
+const COUNTRY_CHOICES = ["Singapore", "Thailand", "Malaysia", "Vietnam", "Indonesia", "Philippines", "Cambodia", "Laos", "Myanmar", "Brunei"];
+const MODES = {
+  classic: {
+    label: "Classic",
+    totalRounds: 5,
+    seconds: 60,
+    prompt: "Where in Southeast Asia is this?",
+    hint: "Inspect the photo, then click the map to place your pin."
+  },
+  country: {
+    label: "Country",
+    totalRounds: 8,
+    seconds: 30,
+    prompt: "Which country is this?",
+    hint: "Pick the country. Faster correct guesses score higher."
+  }
+};
 
 const els = {
   playButton: document.querySelector("#playButton"),
@@ -12,38 +27,51 @@ const els = {
   nextButton: document.querySelector("#nextButton"),
   statusText: document.querySelector("#statusText"),
   countryText: document.querySelector("#countryText"),
+  mapStatusText: document.querySelector("#mapStatusText"),
   timerText: document.querySelector("#timerText"),
   scoreText: document.querySelector("#scoreText"),
   roundText: document.querySelector("#roundText"),
+  streakText: document.querySelector("#streakText"),
   hintText: document.querySelector("#hintText"),
   resultPanel: document.querySelector("#resultPanel"),
-  distanceText: document.querySelector("#distanceText"),
+  resultKicker: document.querySelector("#resultKicker"),
+  resultTitle: document.querySelector("#resultTitle"),
+  resultSubtitle: document.querySelector("#resultSubtitle"),
   roundScoreText: document.querySelector("#roundScoreText"),
+  placeText: document.querySelector("#placeText"),
+  grabContextText: document.querySelector("#grabContextText"),
+  clueText: document.querySelector("#clueText"),
   emptyState: document.querySelector("#emptyState"),
   zoomInButton: document.querySelector("#zoomInButton"),
   zoomOutButton: document.querySelector("#zoomOutButton"),
   resetViewButton: document.querySelector("#resetViewButton"),
-  canvas: document.querySelector("#panoCanvas")
+  canvas: document.querySelector("#panoCanvas"),
+  countryPanel: document.querySelector("#countryPanel"),
+  roundBadges: document.querySelector("#roundBadges"),
+  modeButtons: [...document.querySelectorAll(".mode-button")]
 };
 
 const ctx = els.canvas.getContext("2d");
 const state = {
-  config: loadConfig(),
   client: null,
   map: null,
   usingGrabMap: false,
+  mode: "classic",
   round: 0,
   totalScore: 0,
+  streak: 0,
+  bestStreak: 0,
   phase: "idle",
   timerId: null,
-  secondsLeft: ROUND_SECONDS,
+  secondsLeft: MODES.classic.seconds,
   target: null,
   photo: null,
   guess: null,
+  countryGuess: "",
   image: null,
   viewX: 0.5,
   viewY: 0.5,
-  zoom: 1.25,
+  zoom: 1.18,
   drag: null,
   roundDeck: []
 };
@@ -55,14 +83,17 @@ init();
 async function init() {
   try {
     setStatus("Loading GrabMaps SDK...");
+    setMapStatus("GrabMaps SDK loading");
     state.client = createGrabClient();
     await initMap();
     state.roundDeck = shuffle(GAME_ROUNDS);
+    renderCountryChoices();
     updatePlayAvailability();
-    setStatus("Press Play to start");
+    setStatus("Choose a mode, then press Play");
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Could not initialize");
+    setMapStatus("Map unavailable");
   }
 }
 
@@ -87,14 +118,17 @@ async function initMap() {
       .build();
     state.map = grabMap.getMap();
     state.usingGrabMap = true;
+    setMapStatus("GrabMaps map active");
     await waitForMap(state.map);
   } catch (error) {
     console.warn("Grab map style failed, using OSM fallback map.", error);
     state.usingGrabMap = false;
+    setMapStatus("GrabMaps style down, fallback map active");
     state.map = new maplibregl.Map({
       container: "map",
       center: [103.8198, 1.3521],
       zoom: 4,
+      attributionControl: true,
       style: {
         version: 8,
         sources: {
@@ -113,9 +147,9 @@ async function initMap() {
   }
 
   state.map.on("click", (event) => {
-    if (state.phase !== "playing") return;
+    if (state.phase !== "playing" || state.mode !== "classic") return;
     state.guess = { lat: event.lngLat.lat, lng: event.lngLat.lng };
-    setPoint("guess", state.guess);
+    setPoint("guess", state.guess, { kind: "guess" });
     els.submitButton.disabled = false;
     els.hintText.textContent = "Guess placed. Submit when ready.";
   });
@@ -130,6 +164,9 @@ function bindEvents() {
   els.zoomInButton.addEventListener("click", () => zoomPhoto(0.25));
   els.zoomOutButton.addEventListener("click", () => zoomPhoto(-0.25));
   els.resetViewButton.addEventListener("click", resetPhotoView);
+  els.modeButtons.forEach((button) => {
+    button.addEventListener("click", () => setMode(button.dataset.mode));
+  });
   window.addEventListener("resize", drawPanorama);
 
   els.canvas.addEventListener("pointerdown", (event) => {
@@ -164,9 +201,31 @@ function bindEvents() {
   }, { passive: false });
 }
 
+function setMode(mode) {
+  if (!MODES[mode] || state.phase === "loading" || state.phase === "playing") return;
+  state.mode = mode;
+  state.secondsLeft = modeConfig().seconds;
+  els.modeButtons.forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
+  els.countryPanel.hidden = mode !== "country";
+  els.submitButton.textContent = mode === "country" ? "Lock Country" : "Submit Guess";
+  clearMapOverlays();
+  clearViewer();
+  state.round = 0;
+  state.totalScore = 0;
+  state.streak = 0;
+  state.countryGuess = "";
+  state.phase = "idle";
+  updateHud();
+  updatePlayAvailability();
+  setStatus(`${modeConfig().label} mode ready`);
+  els.hintText.textContent = modeConfig().hint;
+}
+
 async function startGame() {
   state.round = 0;
   state.totalScore = 0;
+  state.streak = 0;
+  state.countryGuess = "";
   state.roundDeck = shuffle(GAME_ROUNDS);
   updateHud();
   await startRound();
@@ -182,12 +241,15 @@ async function startRound() {
   clearViewer();
   state.phase = "loading";
   state.guess = null;
+  state.countryGuess = "";
   state.target = null;
   state.photo = null;
   els.submitButton.disabled = true;
   els.nextButton.disabled = true;
   els.playButton.disabled = true;
   els.resultPanel.hidden = true;
+  els.countryPanel.hidden = state.mode !== "country";
+  updateCountryButtons();
   updateHud();
   setStatus("Loading round...");
 
@@ -197,10 +259,12 @@ async function startRound() {
     state.target = roundData.location;
     state.photo = roundData.photo;
     els.countryText.textContent = "Mystery location";
+    renderRoundBadges(roundData.location);
     state.map.flyTo({ center: [105, 8], zoom: 4, duration: 600 });
     state.phase = "playing";
-    els.hintText.textContent = "Inspect the photo, then click the map to place your pin.";
-    setStatus("Where in Southeast Asia is this?");
+    updateCountryButtons();
+    els.hintText.textContent = modeConfig().hint;
+    setStatus(modeConfig().prompt);
     startTimer();
   } catch (error) {
     console.warn(error);
@@ -233,9 +297,14 @@ function pickCatalogRound() {
     location: {
       id: round.id,
       name: round.name,
+      city: round.city || "",
       country: round.country,
       lat: round.lat,
-      lng: round.lng
+      lng: round.lng,
+      difficulty: round.difficulty || "Medium",
+      clueTypes: round.clueTypes || [],
+      reveal: round.reveal || "",
+      fact: round.fact || ""
     },
     photo: {
       id: round.id,
@@ -312,12 +381,12 @@ function zoomPhoto(delta) {
 function resetPhotoView() {
   state.viewX = 0.5;
   state.viewY = 0.5;
-  state.zoom = 1.25;
+  state.zoom = 1.18;
   drawPanorama();
 }
 
 function startTimer() {
-  state.secondsLeft = ROUND_SECONDS;
+  state.secondsLeft = modeConfig().seconds;
   updateHud();
   state.timerId = window.setInterval(() => {
     state.secondsLeft -= 1;
@@ -331,33 +400,134 @@ function finishRound(timedOut) {
   clearTimer();
   state.phase = "result";
   els.submitButton.disabled = true;
-  els.nextButton.disabled = state.round >= TOTAL_ROUNDS;
-  els.playButton.disabled = state.round < TOTAL_ROUNDS;
+  els.nextButton.disabled = state.round >= modeConfig().totalRounds;
+  els.playButton.disabled = state.round < modeConfig().totalRounds;
 
   const answer = { lat: state.photo.lat, lng: state.photo.lng };
-  setPoint("target", answer);
-  if (state.guess) setLine(state.guess, answer);
+  setPoint("target", answer, { kind: "target" });
 
-  const distance = state.guess ? distanceMeters(state.guess, answer) : 2000000;
-  const score = state.guess ? scoreForDistance(distance) : 0;
+  let score = 0;
+  let title = "";
+  let subtitle = "";
+  let kicker = "Round result";
+
+  if (state.mode === "classic") {
+    if (state.guess) {
+      setLine(state.guess, answer);
+      const distance = distanceMeters(state.guess, answer);
+      score = scoreForDistance(distance);
+      title = `${formatDistance(distance)} away`;
+      subtitle = `${state.target.name}, ${state.target.country}`;
+      kicker = score >= 4500 ? "Pinpoint" : score >= 3000 ? "Strong read" : "Reveal";
+      fitResultBounds(state.guess, answer);
+    } else {
+      title = "No pin placed";
+      subtitle = `Answer: ${state.target.name}, ${state.target.country}`;
+      state.map.flyTo({ center: [answer.lng, answer.lat], zoom: 12 });
+    }
+  } else {
+    const correct = state.countryGuess === state.target.country;
+    const timeBonus = correct ? Math.round((state.secondsLeft / modeConfig().seconds) * 1200) : 0;
+    score = correct ? 3800 + timeBonus : 0;
+    state.streak = correct ? state.streak + 1 : 0;
+    state.bestStreak = Math.max(state.bestStreak, state.streak);
+    title = correct ? "Correct country" : "Country missed";
+    subtitle = state.countryGuess
+      ? `You chose ${state.countryGuess}. Answer: ${state.target.country}.`
+      : `No country selected. Answer: ${state.target.country}.`;
+    kicker = correct ? `Streak ${state.streak}` : "Streak reset";
+    state.map.flyTo({ center: [answer.lng, answer.lat], zoom: 9, duration: 700 });
+  }
+
   state.totalScore += score;
-  els.distanceText.textContent = state.guess
-    ? `${formatDistance(distance)} from ${state.target.name}`
-    : `No guess placed. Answer: ${state.target.name}`;
+  els.resultKicker.textContent = timedOut ? "Time is up" : kicker;
+  els.resultTitle.textContent = title;
+  els.resultSubtitle.textContent = subtitle;
   els.roundScoreText.textContent = `+${score.toLocaleString()}`;
+  els.placeText.textContent = `${state.target.name}${state.target.city ? `, ${state.target.city}` : ""}`;
+  els.clueText.textContent = buildClueText(state.target);
+  els.grabContextText.textContent = "Checking nearby map context...";
   els.resultPanel.hidden = false;
   els.countryText.textContent = `${state.target.name}, ${state.target.country}`;
-  els.hintText.textContent = state.round >= TOTAL_ROUNDS
-    ? "Game complete. Press Play for a new run."
+  els.hintText.textContent = state.round >= modeConfig().totalRounds
+    ? "Run complete. Press Play for a new run."
     : "Review the answer, then continue.";
   setStatus(timedOut ? "Time is up" : "Round scored");
   updateHud();
+  updateCountryButtons(true);
+  loadGrabContext(answer);
+}
 
-  if (state.guess) {
-    fitResultBounds(state.guess, answer);
-  } else {
-    state.map.flyTo({ center: [answer.lng, answer.lat], zoom: 12 });
+async function loadGrabContext(point) {
+  if (!GRABMAPS_API_KEY) {
+    els.grabContextText.textContent = state.usingGrabMap ? "GrabMaps map active" : "Local config missing GrabMaps key";
+    return;
   }
+  try {
+    const reverseParams = new URLSearchParams({ location: `${point.lat},${point.lng}` });
+    const nearbyParams = new URLSearchParams({
+      location: `${point.lat},${point.lng}`,
+      radius: "1",
+      limit: "3",
+      rankBy: "distance"
+    });
+    const [reverseResult, nearbyResult] = await Promise.all([
+      grabGatewayJson(`/api/v1/maps/poi/v1/reverse-geo?${reverseParams}`),
+      grabGatewayJson(`/api/v1/maps/place/v2/nearby?${nearbyParams}`)
+    ]);
+    const reversePlace = reverseResult?.places?.[0];
+    const nearbyNames = (nearbyResult?.places || [])
+      .map((place) => place.name)
+      .filter(Boolean)
+      .slice(0, 2);
+    const address = reversePlace?.formatted_address || reversePlace?.street || reversePlace?.city;
+    els.grabContextText.textContent = [
+      address ? `Address: ${address}` : "",
+      nearbyNames.length ? `Nearby: ${nearbyNames.join(", ")}` : ""
+    ].filter(Boolean).join(" | ") || "GrabMaps returned no nearby label";
+  } catch (error) {
+    console.warn("GrabMaps map context failed.", error);
+    els.grabContextText.textContent = state.usingGrabMap ? "GrabMaps map active" : "Fallback map active";
+  }
+}
+
+async function grabGatewayJson(path) {
+  const response = await fetch(`${GRABMAPS_SDK_BASE_URL}${path}`, {
+    headers: { Authorization: `Bearer ${GRABMAPS_API_KEY}` }
+  });
+  if (!response.ok) throw new Error(`GrabMaps gateway failed: ${response.status}`);
+  return response.json();
+}
+
+function renderCountryChoices() {
+  els.countryPanel.innerHTML = COUNTRY_CHOICES.map((country) => (
+    `<button class="country-choice" type="button" data-country="${country}">${country}</button>`
+  )).join("");
+  els.countryPanel.querySelectorAll(".country-choice").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (state.phase !== "playing" || state.mode !== "country") return;
+      state.countryGuess = button.dataset.country;
+      updateCountryButtons();
+      els.submitButton.disabled = false;
+      els.hintText.textContent = `${state.countryGuess} locked in. Submit when ready.`;
+    });
+  });
+}
+
+function updateCountryButtons(revealed = false) {
+  els.countryPanel.querySelectorAll(".country-choice").forEach((button) => {
+    const country = button.dataset.country;
+    button.classList.toggle("selected", country === state.countryGuess);
+    button.classList.toggle("correct", revealed && country === state.target?.country);
+    button.classList.toggle("wrong", revealed && country === state.countryGuess && country !== state.target?.country);
+    button.disabled = state.mode !== "country" || (state.phase !== "playing" && !revealed);
+  });
+}
+
+function renderRoundBadges(location) {
+  const tags = [location.difficulty, ...location.clueTypes.slice(0, 3)].filter(Boolean);
+  els.roundBadges.innerHTML = tags.map((tag) => `<span>${tag}</span>`).join("");
+  els.roundBadges.hidden = tags.length === 0;
 }
 
 function ensureGameLayers() {
@@ -371,7 +541,7 @@ function ensureGameLayers() {
     if (!map.getSource("result-line-source")) {
       map.addSource("result-line-source", emptyLineSource());
     }
-    addCircleLayer("guess-layer", "guess-source", "#1a73e8", "#ffffff");
+    addCircleLayer("guess-layer", "guess-source", "#2b6ce8", "#ffffff");
     addCircleLayer("target-layer", "target-source", "#00b852", "#082018");
     if (!map.getLayer("result-line-layer")) {
       map.addLayer({
@@ -447,6 +617,7 @@ function clearViewer() {
   state.image = null;
   ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
   els.emptyState.hidden = false;
+  els.roundBadges.hidden = true;
 }
 
 function emptyPointSource() {
@@ -464,10 +635,16 @@ function emptyLineSource() {
 }
 
 function fitResultBounds(a, b) {
-  const bounds = new maplibregl.LngLatBounds();
-  bounds.extend([a.lng, a.lat]);
-  bounds.extend([b.lng, b.lat]);
-  state.map.fitBounds(bounds, { padding: 72, maxZoom: 13, duration: 700 });
+  try {
+    const west = Math.min(a.lng, b.lng);
+    const east = Math.max(a.lng, b.lng);
+    const south = Math.min(a.lat, b.lat);
+    const north = Math.max(a.lat, b.lat);
+    state.map.fitBounds([[west, south], [east, north]], { padding: 72, maxZoom: 13, duration: 700 });
+  } catch (error) {
+    console.warn("Could not fit result bounds; using answer camera instead.", error);
+    state.map.flyTo({ center: [b.lng, b.lat], zoom: 8, duration: 700 });
+  }
 }
 
 function distanceMeters(a, b) {
@@ -484,7 +661,7 @@ function distanceMeters(a, b) {
 }
 
 function scoreForDistance(meters) {
-  if (meters <= 20) return 5000;
+  if (meters <= 25) return 5000;
   return Math.max(0, Math.round(5000 * Math.exp(-meters / 18000)));
 }
 
@@ -493,8 +670,10 @@ function formatDistance(meters) {
 }
 
 function updateHud() {
-  els.roundText.textContent = `${Math.min(state.round, TOTAL_ROUNDS)}/${TOTAL_ROUNDS}`;
+  const total = modeConfig().totalRounds;
+  els.roundText.textContent = `${Math.min(state.round, total)}/${total}`;
   els.scoreText.textContent = state.totalScore.toLocaleString();
+  els.streakText.textContent = state.mode === "country" ? String(state.streak) : String(state.bestStreak);
   els.timerText.textContent = `${Math.floor(state.secondsLeft / 60)}:${String(state.secondsLeft % 60).padStart(2, "0")}`;
 }
 
@@ -502,16 +681,25 @@ function setStatus(message) {
   els.statusText.textContent = message;
 }
 
+function setMapStatus(message) {
+  els.mapStatusText.textContent = message;
+}
+
 function updatePlayAvailability() {
   const hasReadyRound = GAME_ROUNDS.length > 0;
   const busy = state.phase === "loading" || state.phase === "playing";
-  const betweenRounds = state.phase === "result" && state.round < TOTAL_ROUNDS;
+  const betweenRounds = state.phase === "result" && state.round < modeConfig().totalRounds;
   els.playButton.disabled = busy || betweenRounds || !hasReadyRound;
   els.playButton.textContent = hasReadyRound ? "Play" : "No rounds";
 }
 
-function loadConfig() {
-  return { baseUrl: GRABMAPS_SDK_BASE_URL };
+function buildClueText(location) {
+  const tags = location.clueTypes?.length ? location.clueTypes.join(", ") : "street scene";
+  return location.reveal ? `${tags}. ${location.reveal}` : tags;
+}
+
+function modeConfig() {
+  return MODES[state.mode];
 }
 
 function waitForMap(map) {
@@ -536,7 +724,7 @@ function shuffle(items) {
 function clearTimer() {
   window.clearInterval(state.timerId);
   state.timerId = null;
-  state.secondsLeft = ROUND_SECONDS;
+  state.secondsLeft = modeConfig().seconds;
   updateHud();
 }
 

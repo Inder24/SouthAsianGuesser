@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SEA Street Guess</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="./styles.css?v=catalog-6" />
+    <link rel="stylesheet" href="./styles.css?v=game-v7" />
     <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
     <script type="module" src="https://maps.grab.com/developer/assets/js/grabmaps.es.js"></script>
     <script src="./config.local.js"></script>
@@ -13,9 +13,14 @@
   <body>
     <main class="app-shell">
       <section class="topbar" aria-label="Game controls">
-        <div>
+        <div class="brand-lockup">
           <p class="eyebrow">GrabMaps street challenge</p>
           <h1>SEA Street Guess</h1>
+          <span id="mapStatusText">Map standing by</span>
+        </div>
+        <div class="mode-switch" aria-label="Game mode">
+          <button class="mode-button active" type="button" data-mode="classic">Classic</button>
+          <button class="mode-button" type="button" data-mode="country">Country</button>
         </div>
         <div class="score-strip">
           <div>
@@ -29,6 +34,10 @@
           <div>
             <span>Timer</span>
             <strong id="timerText">1:00</strong>
+          </div>
+          <div>
+            <span>Streak</span>
+            <strong id="streakText">0</strong>
           </div>
         </div>
       </section>
@@ -44,6 +53,7 @@
           </div>
           <div class="viewer" id="viewer">
             <canvas id="panoCanvas" width="1600" height="900"></canvas>
+            <div class="round-badges" id="roundBadges" hidden></div>
             <div class="viewer-controls" aria-label="Photo controls">
               <button id="zoomOutButton" type="button" aria-label="Zoom out" title="Zoom out">-</button>
               <button id="resetViewButton" type="button" aria-label="Reset view" title="Reset view">↺</button>
@@ -59,18 +69,37 @@
             <button id="nextButton" class="ghost-button" type="button" disabled>Next Round</button>
             <span id="hintText">Click the map to place your pin.</span>
           </div>
+          <div class="country-panel" id="countryPanel" hidden aria-label="Country choices"></div>
         </div>
 
         <div class="map-card">
           <div id="map"></div>
           <div class="result-panel" id="resultPanel" hidden>
-            <span id="distanceText">0 km away</span>
+            <div>
+              <span id="resultKicker">Round result</span>
+              <strong id="resultTitle">0 km away</strong>
+              <p id="resultSubtitle">Answer reveal</p>
+            </div>
             <strong id="roundScoreText">+0</strong>
+            <dl class="result-stats">
+              <div>
+                <dt>Place</dt>
+                <dd id="placeText">-</dd>
+              </div>
+              <div>
+                <dt>GrabMaps</dt>
+                <dd id="grabContextText">Checking nearby map context...</dd>
+              </div>
+              <div>
+                <dt>Clues</dt>
+                <dd id="clueText">-</dd>
+              </div>
+            </dl>
           </div>
         </div>
       </section>
     </main>
 
-    <script type="module" src="./app.js?v=catalog-6"></script>
+    <script type="module" src="./app.js?v=game-v7"></script>
   </body>
 </html>

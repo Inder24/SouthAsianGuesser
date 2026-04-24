@@ -13,7 +13,7 @@ Start the static SEA Street Guess app from this repository with the expected loc
 
 1. Work from the repository root.
 2. Run `scripts/start.sh`.
-3. Open or hand off the printed URL, usually `http://localhost:5177/?v=catalog-6`.
+3. Open or hand off the printed URL, usually `http://localhost:5177/?v=game-v7`.
 
 ```bash
 .codex/skills/start/scripts/start.sh
